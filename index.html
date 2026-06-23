@@ -219,12 +219,14 @@
             padding: 10px 14px;
             background: #1a1a3a;
             display: flex;
-            gap: 8px;
+            gap: 6px;
             border-top: 1px solid #2a2a4a;
             flex-shrink: 0;
+            flex-wrap: wrap;
         }
         .chat-input-area input {
             flex: 1;
+            min-width: 120px;
             padding: 10px 16px;
             border-radius: 60px;
             border: 1px solid #3a3a5a;
@@ -236,16 +238,19 @@
         .chat-input-area button {
             background: #f7931a;
             border: none;
-            padding: 10px 16px;
+            padding: 10px 14px;
             border-radius: 60px;
             font-weight: bold;
             cursor: pointer;
             flex-shrink: 0;
+            font-size: 16px;
+            min-width: 44px;
         }
         .chat-input-area button.call-btn { background: #2a7a4a; }
         .chat-input-area button.end-call-btn { background: #6a2a2a; display: none; }
-        .chat-input-area button.answer-btn { background: #2a7a4a; display: none; }
+        .chat-input-area button.answer-btn { background: #2a7a4a; display: none; animation: pulse 1s infinite; }
         .chat-input-area button.reset-btn { background: #6a4a2a; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
         .profile-card {
             background: #1a1a32;
             border-radius: 20px;
@@ -325,6 +330,7 @@
         .toast.show { opacity: 1; }
         .empty-state { text-align: center; color: #666; padding: 40px 0; font-size: 14px; }
         .fav-section-title { color: #f7931a; font-size: 13px; margin: 8px 0 4px 4px; font-weight: bold; letter-spacing: 1px; }
+        .ringing { animation: pulse 0.5s infinite; color: #ffaa44; }
     </style>
 </head>
 <body>
@@ -344,25 +350,18 @@
 
     <!-- ========== ОСНОВНОЙ ИНТЕРФЕЙС ========== -->
     <div id="mainContainer" style="display:none; flex-direction:column; height:100%; position:relative;">
-        <!-- HEADER -->
         <div class="header">
             <span class="logo">🔱 MEGA</span>
             <span class="balance-box" id="balanceDisplay">💰 0 АМД</span>
         </div>
 
-        <!-- ВКЛАДКИ -->
         <div class="tabs">
             <button class="tab-btn active" data-tab="chats">💬 Чаты</button>
             <button class="tab-btn" data-tab="contacts">👥 Контакты</button>
             <button class="tab-btn" data-tab="profile">👤 Профиль</button>
         </div>
 
-        <!-- ВКЛАДКА: ЧАТЫ -->
-        <div id="tab-chats" class="tab-content active">
-            <div id="chatsList"></div>
-        </div>
-
-        <!-- ВКЛАДКА: КОНТАКТЫ -->
+        <div id="tab-chats" class="tab-content active"><div id="chatsList"></div></div>
         <div id="tab-contacts" class="tab-content">
             <div class="add-friend-row">
                 <input type="text" id="friendInput" placeholder="@nickname">
@@ -370,8 +369,6 @@
             </div>
             <div id="contactsList"></div>
         </div>
-
-        <!-- ВКЛАДКА: ПРОФИЛЬ -->
         <div id="tab-profile" class="tab-content">
             <div class="profile-card">
                 <div class="avatar-big">👑</div>
@@ -383,7 +380,7 @@
             </div>
         </div>
 
-        <!-- ===== ОКНО ЧАТА (на весь экран) ===== -->
+        <!-- ===== ОКНО ЧАТА ===== -->
         <div id="chatWindow" class="chat-window">
             <div class="chat-header">
                 <button class="back" onclick="closeChat()">‹</button>
@@ -394,7 +391,7 @@
             <div class="chat-input-area">
                 <input type="text" id="chatInput" placeholder="Сообщение..." onkeypress="if(event.key==='Enter') sendChatMessage()">
                 <button onclick="sendChatMessage()">📤</button>
-                <button class="call-btn" onclick="startCall()">📞</button>
+                <button class="call-btn" onclick="startCall()" id="callBtn">📞</button>
                 <button class="answer-btn" id="answerCallBtn" onclick="answerCall()">📞 Ответить</button>
                 <button class="end-call-btn" id="endCallBtn" onclick="endCall()">⏹️</button>
                 <button class="reset-btn" onclick="resetCall()">🔄</button>
@@ -427,7 +424,7 @@
 
 // ============ НАСТРОЙКИ ============
 // ⚠️ ЗАМЕНИ НА СВОЙ НОВЫЙ URL ИЗ APPS SCRIPT
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzD2RUi4mGiKUHv28GGxIgYJ_q3It40BXm9lk30EJgHS0o6fKlQUyUK-9k87hVJorHr/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzpiatLhojW5vfUuLE9Dgx8zRS4SKjeYw7livcG4ojEgm1lU8VB7dtaTpz7c9up2Cur/exec";
 const MSG_PRICE = 0.01;
 const CALL_PRICE_PER_SEC = 0.01;
 
@@ -444,6 +441,84 @@ let callActive = false;
 let callTimer = null;
 let callStartTime = null;
 let incomingCallFrom = null;
+let ringAudio = null;
+let callInterval = null;
+let callAttempts = 0;
+
+// ============ ЗВУКИ ============
+function playSound(type) {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        
+        if (type === 'ring') {
+            // Гудок (короткий, повторяющийся)
+            osc.frequency.value = 440;
+            osc.type = 'sine';
+            gain.gain.value = 0.2;
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.4);
+            setTimeout(() => {
+                const osc2 = ctx.createOscillator();
+                const gain2 = ctx.createGain();
+                osc2.connect(gain2);
+                gain2.connect(ctx.destination);
+                osc2.frequency.value = 440;
+                osc2.type = 'sine';
+                gain2.gain.value = 0.2;
+                osc2.start(ctx.currentTime);
+                osc2.stop(ctx.currentTime + 0.4);
+            }, 600);
+        } else if (type === 'incoming') {
+            // Входящий звонок (прерывистый сигнал)
+            osc.frequency.value = 600;
+            osc.type = 'square';
+            gain.gain.value = 0.15;
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.2);
+            setTimeout(() => {
+                const osc2 = ctx.createOscillator();
+                const gain2 = ctx.createGain();
+                osc2.connect(gain2);
+                gain2.connect(ctx.destination);
+                osc2.frequency.value = 800;
+                osc2.type = 'square';
+                gain2.gain.value = 0.15;
+                osc2.start(ctx.currentTime);
+                osc2.stop(ctx.currentTime + 0.2);
+            }, 300);
+        } else if (type === 'connected') {
+            // Сигнал соединения
+            osc.frequency.value = 1000;
+            osc.type = 'sine';
+            gain.gain.value = 0.1;
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.1);
+            setTimeout(() => {
+                const osc2 = ctx.createOscillator();
+                const gain2 = ctx.createGain();
+                osc2.connect(gain2);
+                gain2.connect(ctx.destination);
+                osc2.frequency.value = 1200;
+                osc2.type = 'sine';
+                gain2.gain.value = 0.1;
+                osc2.start(ctx.currentTime);
+                osc2.stop(ctx.currentTime + 0.1);
+            }, 150);
+        } else if (type === 'end') {
+            osc.frequency.value = 300;
+            osc.type = 'sawtooth';
+            gain.gain.value = 0.1;
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.3);
+        }
+    } catch(e) {
+        console.warn('Звук не поддерживается:', e);
+    }
+}
 
 // ============ ВСПОМОГАТЕЛЬНЫЕ ============
 function showToast(text) {
@@ -546,9 +621,7 @@ async function doLogin() {
         document.getElementById('profileLogin').textContent = currentUser;
         updateBalanceDisplay();
 
-        // Сброс старых звонков при входе
         await apiCall('resetCall', { userId: currentUser });
-
         await loadContactsFromSheet();
 
         if (window._megaInterval) clearInterval(window._megaInterval);
@@ -564,7 +637,6 @@ async function doLogin() {
     }
 }
 
-// ============ ВЫХОД ============
 function doLogout() {
     currentUser = null;
     currentPassword = null;
@@ -573,6 +645,7 @@ function doLogout() {
     if (window._megaInterval) clearInterval(window._megaInterval);
     if (window._chatInterval) clearInterval(window._chatInterval);
     if (callActive) endCall();
+    if (callInterval) clearInterval(callInterval);
     showToast("👋 До встречи!");
 }
 
@@ -714,6 +787,7 @@ function closeChat() {
     chatPartner = null;
     if (window._chatInterval) clearInterval(window._chatInterval);
     if (callActive) endCall();
+    if (callInterval) clearInterval(callInterval);
 }
 
 // ============ СООБЩЕНИЯ ============
@@ -783,7 +857,7 @@ async function sendChatMessage() {
     }
 }
 
-// ============ ЗВОНКИ ============
+// ============ ЗВОНКИ (ИСПРАВЛЕННЫЕ) ============
 async function checkIncomingCall() {
     if (!currentUser) return;
     try {
@@ -791,6 +865,7 @@ async function checkIncomingCall() {
         if (res.success && res.status === "ringing" && res.from !== currentUser) {
             incomingCallFrom = res.from;
             document.getElementById('answerCallBtn').style.display = 'inline-block';
+            playSound('incoming');
             showToast(`📞 Входящий звонок от @${res.from}`);
         } else {
             document.getElementById('answerCallBtn').style.display = 'none';
@@ -808,11 +883,33 @@ async function answerCall() {
         if (res.success) {
             showToast(`✅ Звонок с @${incomingCallFrom} принят`);
             document.getElementById('answerCallBtn').style.display = 'none';
+            playSound('connected');
             openChatWith(incomingCallFrom);
+            // Начинаем списывать деньги
+            startCallBilling();
         }
     } catch(e) {
         showToast("❌ Ошибка: " + e.message);
     }
+}
+
+function startCallBilling() {
+    if (callTimer) clearInterval(callTimer);
+    callStartTime = Date.now();
+    callActive = true;
+    document.getElementById('endCallBtn').style.display = 'inline-block';
+    document.getElementById('callBtn').style.display = 'none';
+    
+    callTimer = setInterval(async () => {
+        if (!callActive) {
+            clearInterval(callTimer);
+            return;
+        }
+        const seconds = Math.floor((Date.now() - callStartTime) / 1000);
+        if (seconds % 10 === 0 && seconds > 0) {
+            await spendAmdForCall(10);
+        }
+    }, 1000);
 }
 
 async function startCall() {
@@ -830,30 +927,39 @@ async function startCall() {
         const res = await apiCall('call', { userId: currentUser, toUser: chatPartner });
         if (!res.success) { showToast("❌ " + res.error); return; }
 
-        callActive = true;
-        document.getElementById('endCallBtn').style.display = 'inline-block';
         showToast(`📞 Звоним @${chatPartner}...`);
+        playSound('ring');
+        
+        // Периодически воспроизводим гудки
+        callInterval = setInterval(() => {
+            if (!callActive) {
+                clearInterval(callInterval);
+                return;
+            }
+            playSound('ring');
+        }, 2000);
 
         let attempts = 0;
-        const interval = setInterval(async () => {
+        const checkInterval = setInterval(async () => {
             attempts++;
             const status = await apiCall('callStatus', { userId: currentUser });
             if (status.success && status.status === "answered") {
-                clearInterval(interval);
+                clearInterval(checkInterval);
+                clearInterval(callInterval);
+                callActive = true;
+                document.getElementById('endCallBtn').style.display = 'inline-block';
+                document.getElementById('callBtn').style.display = 'none';
                 callStartTime = Date.now();
-                showToast(`✅ Звонок начался с @${chatPartner}`);
+                playSound('connected');
                 await sendSystemMessage(`📞 Звонок с @${currentUser} начался`);
-                if (callTimer) clearInterval(callTimer);
-                callTimer = setInterval(async () => {
-                    const seconds = Math.floor((Date.now() - callStartTime) / 1000);
-                    if (seconds % 10 === 0) {
-                        await spendAmdForCall(1);
-                    }
-                }, 1000);
+                showToast(`✅ Звонок начался с @${chatPartner}`);
+                // Запускаем биллинг
+                startCallBilling();
             }
             if (attempts > 50) {
-                clearInterval(interval);
-                if (callActive) {
+                clearInterval(checkInterval);
+                clearInterval(callInterval);
+                if (!callActive) {
                     await endCall();
                     showToast("⏰ Звонок не отвечен");
                 }
@@ -865,17 +971,30 @@ async function startCall() {
 }
 
 async function endCall() {
-    if (!callActive) return;
-    callActive = false;
-    document.getElementById('endCallBtn').style.display = 'none';
-    if (callTimer) clearInterval(callTimer);
-    if (callStartTime) {
+    if (!callActive && !incomingCallFrom) {
+        // Если нет активного звонка — просто сбрасываем
+        await resetCall();
+        return;
+    }
+    
+    if (callActive && chatPartner) {
         const duration = Math.floor((Date.now() - callStartTime) / 1000);
         await apiCall('callEnd', { userId: currentUser, toUser: chatPartner });
         await sendSystemMessage(`⏹️ Звонок завершён (${duration} сек)`);
         showToast(`⏹️ Звонок завершён (${duration} сек)`);
+        playSound('end');
     }
+    
+    // Сброс состояния
+    callActive = false;
+    document.getElementById('endCallBtn').style.display = 'none';
+    document.getElementById('callBtn').style.display = 'inline-block';
+    document.getElementById('answerCallBtn').style.display = 'none';
+    if (callTimer) clearInterval(callTimer);
+    if (callInterval) clearInterval(callInterval);
     callStartTime = null;
+    incomingCallFrom = null;
+    callTimer = null;
 }
 
 async function spendAmdForCall(seconds) {
@@ -892,14 +1011,22 @@ async function spendAmdForCall(seconds) {
 }
 
 async function resetCall() {
-    if (!chatPartner) { showToast("❌ Нет собеседника"); return; }
+    if (!chatPartner && !currentUser) { showToast("❌ Нет собеседника"); return; }
     try {
-        const res = await apiCall('resetCall', { userId: currentUser, toUser: chatPartner });
+        const res = await apiCall('resetCall', { 
+            userId: currentUser, 
+            toUser: chatPartner || '' 
+        });
         if (res.success) {
             showToast("✅ Статус звонка сброшен");
             callActive = false;
             document.getElementById('endCallBtn').style.display = 'none';
+            document.getElementById('callBtn').style.display = 'inline-block';
             document.getElementById('answerCallBtn').style.display = 'none';
+            if (callTimer) clearInterval(callTimer);
+            if (callInterval) clearInterval(callInterval);
+            callStartTime = null;
+            incomingCallFrom = null;
         }
     } catch(e) {
         showToast("❌ Ошибка: " + e.message);
