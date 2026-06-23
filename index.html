@@ -495,7 +495,101 @@
         }
     </style>
 </head>
-    <script>
+<body>
+<div id="toast" class="toast"></div>
+<div class="app" id="app">
+    <!-- ========== ЭКРАН ВХОДА ========== -->
+    <div id="loginContainer" class="login-area">
+        <h2>🔱 MEGA</h2>
+        <div class="sub">Мессенджер Амедерской империи</div>
+        <input type="text" id="loginInput" placeholder="Логин" value="admin">
+        <input type="password" id="passwordInput" placeholder="Пароль" value="1234">
+        <button onclick="doLogin()">🔓 Войти</button>
+        <div id="loginStatus" class="status-text"></div>
+    </div>
+
+    <!-- ========== ОСНОВНОЙ ИНТЕРФЕЙС ========== -->
+    <div id="mainContainer" style="display:none; flex-direction:column; height:100%; position:relative;">
+        <div class="header">
+            <span class="logo">🔱 MEGA</span>
+            <span class="balance-box" id="balanceDisplay">💰 0 АМД</span>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="chats">💬 Чаты</button>
+            <button class="tab-btn" data-tab="contacts">👥 Контакты</button>
+            <button class="tab-btn" data-tab="profile">👤 Профиль</button>
+        </div>
+
+        <div id="tab-chats" class="tab-content active"><div id="chatsList"></div></div>
+        <div id="tab-contacts" class="tab-content">
+            <div class="add-friend-row">
+                <input type="text" id="friendInput" placeholder="@nickname">
+                <button onclick="addFriend()">➕ Добавить</button>
+            </div>
+            <div id="contactsList"></div>
+        </div>
+        <div id="tab-profile" class="tab-content">
+            <div class="profile-card">
+                <div class="avatar-big">👑</div>
+                <div class="label">Логин</div>
+                <div class="value" id="profileLogin">-</div>
+                <div class="label" style="margin-top:12px;">Баланс</div>
+                <div class="value" id="profileBalance">0 АМД</div>
+                <button class="logout-btn" onclick="doLogout()">🚪 Выйти</button>
+            </div>
+        </div>
+
+        <div id="chatWindow" class="chat-window">
+            <div class="chat-header">
+                <button class="back" onclick="closeChat()">‹</button>
+                <span class="name" id="chatPartnerName">Пользователь</span>
+                <span class="online-status" id="chatPartnerStatus"></span>
+            </div>
+            <div class="chat-messages" id="chatMessages"></div>
+            <div class="chat-input-area">
+                <input type="text" id="chatInput" placeholder="Сообщение..." onkeypress="if(event.key==='Enter') sendChatMessage()">
+                <button onclick="sendChatMessage()">📤</button>
+                <button class="call-btn" onclick="startCall()" id="callBtn">📞</button>
+                <button class="answer-btn" id="answerCallBtn" onclick="answerCall()">📞 Ответить</button>
+                <button class="end-call-btn" id="endCallBtn" onclick="endCall()">⏹️</button>
+                <button class="reset-btn" onclick="resetCall()">🔄</button>
+            </div>
+        </div>
+
+        <div id="incomingCallOverlay" class="incoming-call-overlay">
+            <div class="avatar-big" id="incomingAvatar">👤</div>
+            <div class="caller-name" id="incomingName">Пользователь</div>
+            <div class="caller-status">📞 Входящий звонок...</div>
+            <div class="incoming-buttons">
+                <button class="accept" onclick="acceptIncomingCall()">📞</button>
+                <button class="reject" onclick="rejectIncomingCall()">✕</button>
+            </div>
+        </div>
+
+        <div id="callOverlay" class="call-overlay">
+            <div class="avatar-big" id="callAvatar">👤</div>
+            <div class="call-name" id="callName">Пользователь</div>
+            <div class="call-status" id="callStatus">⏳ Соединение...</div>
+            <div class="call-duration" id="callDuration">00:00</div>
+            <div class="call-controls">
+                <button class="mic" id="micBtn" onclick="toggleMic()">🎤</button>
+                <button class="speaker" id="speakerBtn" onclick="toggleSpeaker()">🔊</button>
+                <button class="back-chat" onclick="minimizeCall()">💬</button>
+                <button class="hangup" onclick="endCall()">📞</button>
+            </div>
+        </div>
+
+        <div id="callMini" class="call-mini" onclick="maximizeCall()">
+            <div class="mini-avatar" id="miniAvatar">👤</div>
+            <span id="miniName">Пользователь</span>
+            <span class="mini-duration" id="miniDuration">00:00</span>
+            <button class="mini-hangup" onclick="event.stopPropagation(); endCall()">✕</button>
+        </div>
+    </div>
+</div>
+
+<script>
 // ============ БЕЗОПАСНАЯ РАБОТА С LOCALSTORAGE ============
 (function() {
     let storageAvailable = false;
@@ -518,18 +612,16 @@
 })();
 
 // ============ НАСТРОЙКИ ============
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzUXbhswuM1CbrSebqS9RftGXM9E7NbqDra1-c_tnKLAykcMOrRdRZ6Jep42aXN3d6V/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbytzMAiqZQtNe_-TatqwwuuJLFLVIPX0Bzc1bfrBkjddhEx8rwnhvp0Ex0igAkXSDRZ/exec";
 const MSG_PRICE = 0.01;
 const CALL_PRICE_PER_SEC = 0.01;
 
 let currentUser = null;
-let currentPassword = null;
 let balance = 0;
 let contacts = [];
 let chatPartner = null;
 let messagesCache = [];
 let allUsers = {};
-let onlineUsers = {};
 let favorites = [];
 
 // ============ WebRTC ============
@@ -591,9 +683,6 @@ async function loadUsers() {
         const data = await apiCall('getUsers');
         if (data.success) {
             allUsers = data.users || {};
-            for (const login in allUsers) {
-                onlineUsers[login] = true;
-            }
             return allUsers;
         }
     } catch (e) { console.error('loadUsers error:', e); }
@@ -644,7 +733,6 @@ async function doLogin() {
         if (user.password !== pass) { showToast("❌ Неверный пароль"); return; }
 
         currentUser = login;
-        currentPassword = pass;
         balance = user.balance || 0;
 
         document.getElementById('loginContainer').style.display = 'none';
@@ -670,7 +758,6 @@ async function doLogin() {
 
 function doLogout() {
     currentUser = null;
-    currentPassword = null;
     document.getElementById('mainContainer').style.display = 'none';
     document.getElementById('loginContainer').style.display = 'flex';
     if (window._megaInterval) clearInterval(window._megaInterval);
@@ -787,7 +874,7 @@ function renderChats() {
                 <div class="last-msg">Нажмите для чата</div>
             </div>
             <span class="fav-star ${isFav ? 'active' : ''}" onclick="event.stopPropagation(); toggleFavorite('${name}')">⭐</span>
-            <div class="time">${onlineUsers[name] ? '🟢' : '⚪'}</div>
+            <div class="time">${allUsers[name] ? '🟢' : '⚪'}</div>
         `;
         div.onclick = () => openChatWith(name);
         container.appendChild(div);
@@ -799,12 +886,6 @@ function openChatWith(name) {
     if (!contacts.includes(name)) { showToast("❌ Этот пользователь не в контактах"); return; }
     chatPartner = name;
     document.getElementById('chatPartnerName').textContent = `@${name}`;
-    const statusEl = document.getElementById('chatPartnerStatus');
-    if (onlineUsers[name]) {
-        statusEl.className = 'online-status online';
-    } else {
-        statusEl.className = 'online-status offline';
-    }
     document.getElementById('chatWindow').classList.add('active');
     document.getElementById('chatMessages').innerHTML = '';
     loadChatMessages();
@@ -886,7 +967,7 @@ async function sendChatMessage() {
     }
 }
 
-// ============ WebRTC (ГОЛОС) ============
+// ============ WebRTC ============
 async function startWebrtcCall(isCaller) {
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -894,7 +975,12 @@ async function startWebrtcCall(isCaller) {
         peerConnection = new RTCPeerConnection({
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { 
+                    urls: 'turn:turn.numb.viagenie.ca',
+                    credential: 'muazkh',
+                    username: 'webrtc@live.com'
+                }
             ]
         });
 
@@ -927,7 +1013,6 @@ async function startWebrtcCall(isCaller) {
             });
             await waitForAnswer();
         } else {
-            // Получаем offer
             const offerRes = await apiCall('getWebrtcOffer', { userId: currentUser });
             if (offerRes.success && offerRes.offer) {
                 const offer = JSON.parse(offerRes.offer);
@@ -995,18 +1080,14 @@ async function acceptIncomingCall() {
             callStartTime = Date.now();
             connectionMessageSent = false;
             
-            // Запускаем WebRTC
             await startWebrtcCall(false);
             
-            // Показываем меню звонка
             showCallUI(chatPartner);
             document.getElementById('callStatus').textContent = '✅ Соединено';
             document.getElementById('callDuration').classList.add('visible');
             
-            // Запускаем биллинг
             startCallBilling();
             
-            // Отправляем системное сообщение
             if (!connectionMessageSent) {
                 connectionMessageSent = true;
                 await sendSystemMessage(`📞 Звонок от @${currentUser} (ответил)`);
@@ -1045,7 +1126,6 @@ function hideCallUI() {
     document.getElementById('callMini').classList.remove('active');
     document.getElementById('callBtn').style.display = 'inline-block';
     document.getElementById('endCallBtn').style.display = 'none';
-    document.getElementById('answerCallBtn').style.display = 'none';
     callMinimized = false;
 }
 
@@ -1136,10 +1216,8 @@ async function startCall() {
         document.getElementById('callStatus').textContent = '⏳ Ожидание ответа...';
         showToast(`📞 Звоним @${chatPartner}...`);
 
-        // Запускаем WebRTC как caller
         await startWebrtcCall(true);
 
-        // Проверяем статус звонка
         let attempts = 0;
         const checkInterval = setInterval(async () => {
             attempts++;
@@ -1169,7 +1247,6 @@ async function startCall() {
 }
 
 async function answerCall() {
-    // Перенаправляем на глобальный оверлей
     await acceptIncomingCall();
 }
 
@@ -1186,7 +1263,10 @@ async function endCall() {
         showToast(`⏹️ Звонок завершён (${duration} сек)`);
     }
 
-    // Закрываем WebRTC
+    if (incomingCallFrom) {
+        await apiCall('callEnd', { userId: currentUser, toUser: incomingCallFrom });
+    }
+
     if (peerConnection) {
         peerConnection.close();
         peerConnection = null;
@@ -1204,13 +1284,14 @@ async function endCall() {
     connectionMessageSent = false;
     document.getElementById('endCallBtn').style.display = 'none';
     document.getElementById('callBtn').style.display = 'inline-block';
-    document.getElementById('answerCallBtn').style.display = 'none';
     document.getElementById('incomingCallOverlay').classList.remove('active');
     if (callTimer) clearInterval(callTimer);
     callStartTime = null;
     incomingCallFrom = null;
     callTimer = null;
     hideCallUI();
+
+    await apiCall('resetCall', { userId: currentUser, toUser: chatPartner || '' });
 }
 
 async function spendAmdForCall(seconds) {
@@ -1236,10 +1317,8 @@ async function resetCall() {
         if (res.success) {
             showToast("✅ Статус звонка сброшен");
             callActive = false;
-            connectionMessageSent = false;
             document.getElementById('endCallBtn').style.display = 'none';
             document.getElementById('callBtn').style.display = 'inline-block';
-            document.getElementById('answerCallBtn').style.display = 'none';
             document.getElementById('incomingCallOverlay').classList.remove('active');
             if (callTimer) clearInterval(callTimer);
             callStartTime = null;
@@ -1289,6 +1368,17 @@ async function refreshAll() {
     await checkIncomingCall();
     if (chatPartner) await loadChatMessages();
     if (callActive) updateCallUI();
+    
+    // Принудительная проверка статуса звонка
+    if (callActive) {
+        try {
+            const res = await apiCall('callStatus', { userId: currentUser });
+            if (!res.success || res.status === null) {
+                showToast("⏹️ Связь прервана");
+                await endCall();
+            }
+        } catch(e) {}
+    }
 }
 
 // ============ ЗАПУСК ============
@@ -1298,107 +1388,5 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('mainContainer').style.display = 'none';
 });
 </script>
-<body>
-<div id="toast" class="toast"></div>
-<div class="app" id="app">
-    <!-- ========== ЭКРАН ВХОДА ========== -->
-    <div id="loginContainer" class="login-area">
-        <h2>🔱 MEGA</h2>
-        <div class="sub">Мессенджер Амедерской империи</div>
-        <input type="text" id="loginInput" placeholder="Логин" value="admin">
-        <input type="password" id="passwordInput" placeholder="Пароль" value="1234">
-        <button onclick="doLogin()">🔓 Войти</button>
-        <div id="loginStatus" class="status-text"></div>
-    </div>
-
-    <!-- ========== ОСНОВНОЙ ИНТЕРФЕЙС ========== -->
-    <div id="mainContainer" style="display:none; flex-direction:column; height:100%; position:relative;">
-        <!-- HEADER -->
-        <div class="header">
-            <span class="logo">🔱 MEGA</span>
-            <span class="balance-box" id="balanceDisplay">💰 0 АМД</span>
-        </div>
-
-        <!-- ВКЛАДКИ -->
-        <div class="tabs">
-            <button class="tab-btn active" data-tab="chats">💬 Чаты</button>
-            <button class="tab-btn" data-tab="contacts">👥 Контакты</button>
-            <button class="tab-btn" data-tab="profile">👤 Профиль</button>
-        </div>
-
-        <!-- ВКЛАДКА: ЧАТЫ -->
-        <div id="tab-chats" class="tab-content active"><div id="chatsList"></div></div>
-
-        <!-- ВКЛАДКА: КОНТАКТЫ -->
-        <div id="tab-contacts" class="tab-content">
-            <div class="add-friend-row">
-                <input type="text" id="friendInput" placeholder="@nickname">
-                <button onclick="addFriend()">➕ Добавить</button>
-            </div>
-            <div id="contactsList"></div>
-        </div>
-
-        <!-- ВКЛАДКА: ПРОФИЛЬ -->
-        <div id="tab-profile" class="tab-content">
-            <div class="profile-card">
-                <div class="avatar-big">👑</div>
-                <div class="label">Логин</div>
-                <div class="value" id="profileLogin">-</div>
-                <div class="label" style="margin-top:12px;">Баланс</div>
-                <div class="value" id="profileBalance">0 АМД</div>
-                <button class="logout-btn" onclick="doLogout()">🚪 Выйти</button>
-            </div>
-        </div>
-
-        <!-- ===== ОКНО ЧАТА ===== -->
-        <div id="chatWindow" class="chat-window">
-            <div class="chat-header">
-                <button class="back" onclick="closeChat()">‹</button>
-                <span class="name" id="chatPartnerName">Пользователь</span>
-                <span class="online-status" id="chatPartnerStatus"></span>
-            </div>
-            <div class="chat-messages" id="chatMessages"></div>
-            <div class="chat-input-area">
-                <input type="text" id="chatInput" placeholder="Сообщение..." onkeypress="if(event.key==='Enter') sendChatMessage()">
-                <button onclick="sendChatMessage()">📤</button>
-                <button class="call-btn" onclick="startCall()" id="callBtn">📞</button>
-                <button class="answer-btn" id="answerCallBtn" onclick="answerCall()">📞 Ответить</button>
-                <button class="end-call-btn" id="endCallBtn" onclick="endCall()">⏹️</button>
-                <button class="reset-btn" onclick="resetCall()">🔄</button>
-            </div>
-        </div>
-
-        <!-- ===== ГЛОБАЛЬНЫЙ ОВЕРЛЕЙ ВХОДЯЩЕГО ЗВОНКА ===== -->
-        <div id="incomingCallOverlay" class="incoming-call-overlay">
-            <div class="avatar-big" id="incomingAvatar">👤</div>
-            <div class="caller-name" id="incomingName">Пользователь</div>
-            <div class="caller-status">📞 Входящий звонок...</div>
-            <div class="incoming-buttons">
-                <button class="accept" onclick="acceptIncomingCall()">📞</button>
-                <button class="reject" onclick="rejectIncomingCall()">✕</button>
-            </div>
-        </div>
-
-        <!-- ===== МЕНЮ ЗВОНКА ===== -->
-        <div id="callOverlay" class="call-overlay">
-            <div class="avatar-big" id="callAvatar">👤</div>
-            <div class="call-name" id="callName">Пользователь</div>
-            <div class="call-status" id="callStatus">⏳ Соединение...</div>
-            <div class="call-duration" id="callDuration">00:00</div>
-            <div class="call-controls">
-                <button class="mic" id="micBtn" onclick="toggleMic()">🎤</button>
-                <button class="speaker" id="speakerBtn" onclick="toggleSpeaker()">🔊</button>
-                <button class="back-chat" onclick="minimizeCall()">💬</button>
-                <button class="hangup" onclick="endCall()">📞</button>
-            </div>
-        </div>
-
-        <!-- ===== МИНИ-ПАНЕЛЬ ЗВОНКА ===== -->
-        <div id="callMini" class="call-mini" onclick="maximizeCall()">
-            <div class="mini-avatar" id="miniAvatar">👤</div>
-            <span id="miniName">Пользователь</span>
-            <span class="mini-duration" id="miniDuration">00:00</span>
-            <button class="mini-hangup" onclick="event.stopPropagation(); endCall()">✕</button>
-        </div>
-    </div>
-</div>
+</body>
+</html>
