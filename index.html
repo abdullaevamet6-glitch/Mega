@@ -1,0 +1,39 @@
+async function doLogin() {
+    const login = document.getElementById('loginInput').value.trim();
+    const pass = document.getElementById('passwordInput').value.trim();
+    if (!login || !pass) { showToast("❌ Введите логин и пароль"); return; }
+
+    try {
+        const users = await loadUsers();
+        const user = users[login];
+        if (!user) { showToast("❌ Пользователь не найден"); return; }
+        if (user.password !== pass) { showToast("❌ Неверный пароль"); return; }
+
+        currentUser = login;
+        currentPassword = pass;
+        balance = user.balance || 0;
+
+        // ===== ПРИНУДИТЕЛЬНО ПОКАЗЫВАЕМ ИНТЕРФЕЙС =====
+        document.getElementById('loginContainer').style.display = 'none';
+        document.getElementById('mainContainer').style.display = 'flex';
+        document.getElementById('profileLogin').textContent = currentUser;
+        updateBalanceDisplay();
+
+        // Загружаем контакты
+        loadContacts();
+        renderChats();
+        renderContacts();
+
+        // Автообновление
+        if (window._megaInterval) clearInterval(window._megaInterval);
+        window._megaInterval = setInterval(() => {
+            refreshAll();
+        }, 5000);
+
+        showToast(`🔱 Добро пожаловать, ${currentUser}`);
+        switchTab('chats');
+    } catch(e) {
+        console.error('Login error:', e);
+        showToast("❌ Ошибка входа: " + e.message);
+    }
+}
